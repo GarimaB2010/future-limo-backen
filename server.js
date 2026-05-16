@@ -1,7 +1,3 @@
-// ==========================================
-// FUTURE LIMO STRIPE BACKEND
-// ==========================================
-
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -28,7 +24,7 @@ app.use(cors({
 }));
 
 // ==========================================
-// HEALTH CHECK ROUTE
+// HEALTH CHECK
 // ==========================================
 
 app.get('/', (req, res) => {
@@ -52,7 +48,6 @@ app.post(
 
     try {
 
-      // Verify Stripe webhook signature
       event = stripe.webhooks.constructEvent(
         request.body,
         sig,
@@ -82,14 +77,10 @@ app.post(
 
       try {
 
-        // ==========================================
-        // SEND EMAIL
-        // ==========================================
-
         await resend.emails.send({
           from: 'Future Limo <onboarding@resend.dev>',
           to: paymentIntent.metadata.customerEmail,
-          subject: 'Your Future Limo Booking Confirmation',
+          subject: 'Future Limo Booking Confirmation',
           html: `
             <h1>Booking Confirmed</h1>
 
@@ -188,10 +179,6 @@ app.post('/create-payment-intent', async (req, res) => {
       bookingDate
     } = req.body;
 
-    // ==========================================
-    // CREATE STRIPE PAYMENT INTENT
-    // ==========================================
-
     const paymentIntent = await stripe.paymentIntents.create({
 
       amount: Math.round(amount * 100),
@@ -211,10 +198,6 @@ app.post('/create-payment-intent', async (req, res) => {
         bookingDate
       }
     });
-
-    // ==========================================
-    // RETURN CLIENT SECRET
-    // ==========================================
 
     res.send({
       clientSecret: paymentIntent.client_secret,
