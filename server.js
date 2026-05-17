@@ -1,3 +1,7 @@
+// ==========================================
+// FUTURE LIMO STRIPE BACKEND
+// ==========================================
+
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -24,7 +28,7 @@ app.use(cors({
 }));
 
 // ==========================================
-// HEALTH CHECK
+// HEALTH CHECK ROUTE
 // ==========================================
 
 app.get('/', (req, res) => {
@@ -47,20 +51,14 @@ app.post(
     let event;
 
     try {
-
       event = stripe.webhooks.constructEvent(
         request.body,
         sig,
         endpointSecret
       );
-
     } catch (err) {
-
       console.error(`❌ Webhook Error: ${err.message}`);
-
-      return response.status(400).send(
-        `Webhook Error: ${err.message}`
-      );
+      return response.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     // ==========================================
@@ -68,74 +66,85 @@ app.post(
     // ==========================================
 
     if (event.type === 'payment_intent.succeeded') {
-
       const paymentIntent = event.data.object;
 
-      console.log(
-        `✅ Payment succeeded: ${paymentIntent.amount / 100} CAD`
-      );
+      console.log(`✅ Payment succeeded: ${paymentIntent.amount / 100} CAD`);
 
       try {
+        const customerName = paymentIntent.metadata.customerName || 'Customer';
+        const customerEmail = paymentIntent.metadata.customerEmail;
+        const pickup = paymentIntent.metadata.pickup || 'Not provided';
+        const destination = paymentIntent.metadata.destination || 'Not provided';
+        const vehicle = paymentIntent.metadata.vehicle || 'Not provided';
+        const bookingDate = paymentIntent.metadata.bookingDate || 'Not provided';
+        const totalPaid = (paymentIntent.amount / 100).toFixed(2);
+
+        // ==========================================
+        // SEND EMAIL TO CUSTOMER
+        // ==========================================
+
+        if (customerEmail) {
+          await resend.emails.send({
+            from: 'Future Limo <reservations@future-limo.com>',
+            to: customerEmail,
+            subject: 'Your Future Limo Booking Confirmation',
+            html: `
+              <h1>Booking Confirmed</h1>
+
+              <p>Thank you for booking with Future Limo.</p>
+
+              <h3>Trip Details</h3>
+
+              <p><strong>Name:</strong> ${customerName}</p>
+              <p><strong>Pickup:</strong> ${pickup}</p>
+              <p><strong>Destination:</strong> ${destination}</p>
+              <p><strong>Vehicle:</strong> ${vehicle}</p>
+              <p><strong>Date:</strong> ${bookingDate}</p>
+              <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
+
+              <br />
+
+              <p>We look forward to serving you.</p>
+              <p>Future Limo</p>
+            `
+          });
+        }
+
+        // ==========================================
+        // SEND EMAIL TO OWNER
+        // ==========================================
 
         await resend.emails.send({
-          from: 'Future Limo <onboarding@resend.dev>',
-          to: paymentIntent.metadata.customerEmail,
-          subject: 'Future Limo Booking Confirmation',
+          from: 'Future Limo <reservations@future-limo.com>',
+          to: 'reservations@future-limo.com',
+          subject: 'New Future Limo Booking Paid',
           html: `
-            <h1>Booking Confirmed</h1>
+            <h1>New Paid Booking</h1>
 
-            <p>Thank you for booking with Future Limo.</p>
+            <h3>Customer Details</h3>
+
+            <p><strong>Name:</strong> ${customerName}</p>
+            <p><strong>Email:</strong> ${customerEmail || 'Not provided'}</p>
 
             <h3>Trip Details</h3>
 
-            <p>
-              <strong>Name:</strong>
-              ${paymentIntent.metadata.customerName}
-            </p>
-
-            <p>
-              <strong>Pickup:</strong>
-              ${paymentIntent.metadata.pickup}
-            </p>
-
-            <p>
-              <strong>Destination:</strong>
-              ${paymentIntent.metadata.destination}
-            </p>
-
-            <p>
-              <strong>Vehicle:</strong>
-              ${paymentIntent.metadata.vehicle}
-            </p>
-
-            <p>
-              <strong>Date:</strong>
-              ${paymentIntent.metadata.bookingDate}
-            </p>
-
-            <p>
-              <strong>Total Paid:</strong>
-              $${paymentIntent.amount / 100} CAD
-            </p>
+            <p><strong>Pickup:</strong> ${pickup}</p>
+            <p><strong>Destination:</strong> ${destination}</p>
+            <p><strong>Vehicle:</strong> ${vehicle}</p>
+            <p><strong>Date:</strong> ${bookingDate}</p>
+            <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
 
             <br />
 
-            <p>We look forward to serving you.</p>
-
-            <p>Future Limo</p>
+            <p>This booking has been paid successfully through Stripe.</p>
           `
         });
 
-        console.log('📧 Confirmation email sent');
+        console.log('📧 Customer and owner emails sent');
 
       } catch (emailError) {
-
-        console.error(
-          '❌ Email sending failed:',
-          emailError
-        );
+        console.error('❌ Email sending failed:', emailError);
       }
-
     }
 
     // ==========================================
@@ -143,12 +152,8 @@ app.post(
     // ==========================================
 
     else if (event.type === 'payment_intent.payment_failed') {
-
       const paymentIntent = event.data.object;
-
-      console.log(
-        `❌ Payment failed: ${paymentIntent.amount / 100} CAD`
-      );
+      console.log(`❌ Payment failed: ${paymentIntent.amount / 100} CAD`);
     }
 
     response.sendStatus(200);
@@ -166,9 +171,7 @@ app.use(express.json());
 // ==========================================
 
 app.post('/create-payment-intent', async (req, res) => {
-
   try {
-
     const {
       amount,
       customerName,
@@ -180,14 +183,14 @@ app.post('/create-payment-intent', async (req, res) => {
     } = req.body;
 
     const paymentIntent = await stripe.paymentIntents.create({
-
       amount: Math.round(amount * 100),
-
       currency: 'cad',
 
       automatic_payment_methods: {
         enabled: true,
       },
+
+      receipt_email: customerEmail,
 
       metadata: {
         customerName,
@@ -204,7 +207,6 @@ app.post('/create-payment-intent', async (req, res) => {
     });
 
   } catch (error) {
-
     console.error(error);
 
     res.status(400).send({
