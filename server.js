@@ -5,9 +5,15 @@ require("dotenv").config();
 const Stripe = require("stripe");
 const { Resend } = require("resend");
 const PDFDocument = require("pdfkit");
+const twilio = require("twilio");
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+const smsClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
 
 const app = express();
 
@@ -147,13 +153,32 @@ app.post(
             to: customerEmail,
             subject: "Your Future Limo Booking Confirmation",
             html: `
-              <h1>Booking Confirmed</h1>
-              <p>Thank you ${customerName}. Your payment was successful.</p>
+              <h2>Hi ${customerName},</h2>
+
+              <p>Thank you for booking with Future Limo. Your payment has been received and your ride is now confirmed.</p>
+
+              <h3>Your Booking Confirmation</h3>
+
+              <p><strong>Pickup:</strong> ${pickup}</p>
+              <p><strong>Drop-off:</strong> ${destination}</p>
+              <p><strong>Vehicle:</strong> ${vehicle}</p>
+              <p><strong>Ride Type:</strong> ${rideType}</p>
+              <p><strong>Date:</strong> ${bookingDate}</p>
+              <p><strong>Time:</strong> ${bookingTime}</p>
               <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
-              <p>Your invoice PDF is attached.</p>
+
+              <p>Your official PDF invoice is attached to this email for your records.</p>
+
+              <p>If you need to update your booking, please reply to this email or contact us at reservations@future-limo.com.</p>
+
+              <br />
+              <p>Thank you,</p>
+              <p><strong>Future Limo</strong></p>
             `,
             attachments: invoiceAttachment,
           });
+
+          console.log("📧 Customer email with PDF invoice sent");
         }
 
         await resend.emails.send({
@@ -180,7 +205,38 @@ app.post(
           attachments: invoiceAttachment,
         });
 
-        console.log("📧 Booking emails with PDF invoice sent");
+        console.log("📧 Company email with PDF invoice sent");
+
+        if (customerPhone) {
+          try {
+            await smsClient.messages.create({
+              from: process.env.TWILIO_PHONE_NUMBER,
+              to: customerPhone,
+              body: `Hi ${customerName},
+
+Your Future Limo booking is confirmed.
+
+Pickup: ${pickup}
+Drop-off: ${destination}
+Date: ${bookingDate}
+Time: ${bookingTime}
+
+Total Paid: $${totalPaid} CAD
+
+A confirmation email with your PDF invoice has been sent.
+
+Questions: reservations@future-limo.com
+
+Future Limo`,
+            });
+
+            console.log("📱 SMS confirmation sent");
+          } catch (smsError) {
+            console.error("❌ SMS failed:", smsError);
+          }
+        }
+
+        console.log("✅ Booking confirmation flow completed");
       } catch (emailError) {
         console.error("❌ Email/PDF sending failed:", emailError);
       }
