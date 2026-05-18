@@ -45,9 +45,10 @@ function createInvoicePDF(data) {
       doc.fontSize(30).text("INVOICE", { align: "center" });
       doc.moveDown();
 
-      doc.fontSize(12).text(`Invoice Date: ${new Date().toLocaleDateString("en-CA")}`, {
-        align: "right",
-      });
+      doc.fontSize(12).text(
+        `Invoice Date: ${new Date().toLocaleDateString("en-CA")}`,
+        { align: "right" }
+      );
 
       doc.moveDown();
       doc.fontSize(15).text("Prepared For");
@@ -133,6 +134,13 @@ app.post(
           totalPaid,
         });
 
+        const invoiceAttachment = [
+          {
+            filename: "Future-Limo-Invoice.pdf",
+            content: invoicePDF.toString("base64"),
+          },
+        ];
+
         if (customerEmail) {
           await resend.emails.send({
             from: "Future Limo <reservations@future-limo.com>",
@@ -144,12 +152,7 @@ app.post(
               <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
               <p>Your invoice PDF is attached.</p>
             `,
-            attachments: [
-              {
-                filename: "Future-Limo-Invoice.pdf",
-                content: invoicePDF,
-              },
-            ],
+            attachments: invoiceAttachment,
           });
         }
 
@@ -169,15 +172,12 @@ app.post(
             <p><strong>Date:</strong> ${bookingDate}</p>
             <p><strong>Time:</strong> ${bookingTime}</p>
             <p><strong>Distance:</strong> ${distanceKm} km</p>
+            <p><strong>Flight Number:</strong> ${flightNumber}</p>
+            <p><strong>Special Requests:</strong> ${specialRequests}</p>
             <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
             <p><strong>Payment ID:</strong> ${paymentIntent.id}</p>
           `,
-          attachments: [
-            {
-              filename: "Future-Limo-Invoice.pdf",
-              content: invoicePDF,
-            },
-          ],
+          attachments: invoiceAttachment,
         });
 
         console.log("📧 Booking emails with PDF invoice sent");
