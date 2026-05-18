@@ -1,7 +1,7 @@
 {
   "name": "future-limo-backend",
   "version": "1.0.0",
-  "description": "Future Limo Stripe + Resend Backend",
+  "description": "Future Limo Stripe + Resend + SMS Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,7 +12,7 @@
     "express": "^4.19.2",
     "pdfkit": "^0.17.1",
     "resend": "^4.0.0",
-    "stripe": "^15.1.0"
+    "stripe": "^15.1.0",
+    "twilio": "^5.5.3"
   }
 }
-     
