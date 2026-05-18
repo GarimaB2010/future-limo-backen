@@ -1,22 +1,15 @@
-// ==========================================
-// FUTURE LIMO STRIPE BACKEND
-// ==========================================
-
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
 const Stripe = require("stripe");
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-
 const { Resend } = require("resend");
+const PDFDocument = require("pdfkit");
+
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const app = express();
-
-// ==========================================
-// CORS
-// ==========================================
 
 app.use(
   cors({
@@ -30,17 +23,65 @@ app.use(
   })
 );
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
-
 app.get("/", (req, res) => {
   res.send("✅ Future Limo backend running");
 });
 
-// ==========================================
-// STRIPE WEBHOOK - MUST BE BEFORE express.json()
-// ==========================================
+function createInvoicePDF(data) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: "A4", margin: 45 });
+      const chunks = [];
+
+      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+
+      doc.fontSize(24).text("FUTURE LIMOUSINE", { align: "center" });
+      doc.fontSize(10).text("future-limo.com | 226-989-6216", {
+        align: "center",
+      });
+
+      doc.moveDown(2);
+      doc.fontSize(30).text("INVOICE", { align: "center" });
+      doc.moveDown();
+
+      doc.fontSize(12).text(`Invoice Date: ${new Date().toLocaleDateString("en-CA")}`, {
+        align: "right",
+      });
+
+      doc.moveDown();
+      doc.fontSize(15).text("Prepared For");
+      doc.fontSize(12).text(data.customerName || "Customer");
+      doc.text(data.customerEmail || "");
+      doc.text(data.customerPhone || "");
+
+      doc.moveDown();
+      doc.fontSize(15).text("Service Details");
+      doc.fontSize(12).text(`Ride Type: ${data.rideType}`);
+      doc.text(`Pickup: ${data.pickup}`);
+      doc.text(`Drop-off: ${data.destination}`);
+      doc.text(`Vehicle: ${data.vehicle}`);
+      doc.text(`Date: ${data.bookingDate}`);
+      doc.text(`Time: ${data.bookingTime}`);
+      doc.text(`Distance: ${data.distanceKm} km`);
+      doc.text(`Flight Number: ${data.flightNumber}`);
+      doc.text(`Special Requests: ${data.specialRequests}`);
+
+      doc.moveDown();
+      doc.fontSize(15).text("Payment Summary");
+      doc.fontSize(13).text(`Total Paid: $${data.totalPaid} CAD`);
+
+      doc.moveDown(2);
+      doc.fontSize(10).text("Thank you for choosing Future Limousine.", {
+        align: "center",
+      });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
 
 app.post(
   "/webhook",
@@ -76,6 +117,22 @@ app.post(
       const totalPaid = (paymentIntent.amount / 100).toFixed(2);
 
       try {
+        const invoicePDF = await createInvoicePDF({
+          customerName,
+          customerEmail,
+          customerPhone,
+          pickup,
+          destination,
+          vehicle,
+          rideType,
+          bookingDate,
+          bookingTime,
+          flightNumber,
+          specialRequests,
+          distanceKm,
+          totalPaid,
+        });
+
         if (customerEmail) {
           await resend.emails.send({
             from: "Future Limo <reservations@future-limo.com>",
@@ -83,26 +140,16 @@ app.post(
             subject: "Your Future Limo Booking Confirmation",
             html: `
               <h1>Booking Confirmed</h1>
-              <p>Thank you for booking with Future Limo.</p>
-
-              <h3>Trip Details</h3>
-              <p><strong>Name:</strong> ${customerName}</p>
-              <p><strong>Phone:</strong> ${customerPhone}</p>
-              <p><strong>Pickup:</strong> ${pickup}</p>
-              <p><strong>Drop-off:</strong> ${destination}</p>
-              <p><strong>Vehicle:</strong> ${vehicle}</p>
-              <p><strong>Ride Type:</strong> ${rideType}</p>
-              <p><strong>Date:</strong> ${bookingDate}</p>
-              <p><strong>Time:</strong> ${bookingTime}</p>
-              <p><strong>Distance:</strong> ${distanceKm} km</p>
-              <p><strong>Flight Number:</strong> ${flightNumber}</p>
-              <p><strong>Special Requests:</strong> ${specialRequests}</p>
+              <p>Thank you ${customerName}. Your payment was successful.</p>
               <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
-
-              <br />
-              <p>We look forward to serving you.</p>
-              <p>Future Limo</p>
+              <p>Your invoice PDF is attached.</p>
             `,
+            attachments: [
+              {
+                filename: "Future-Limo-Invoice.pdf",
+                content: invoicePDF,
+              },
+            ],
           });
         }
 
@@ -112,13 +159,9 @@ app.post(
           subject: "New Paid Booking - Future Limo",
           html: `
             <h1>New Paid Booking</h1>
-
-            <h3>Customer Details</h3>
             <p><strong>Name:</strong> ${customerName}</p>
             <p><strong>Email:</strong> ${customerEmail}</p>
             <p><strong>Phone:</strong> ${customerPhone}</p>
-
-            <h3>Trip Details</h3>
             <p><strong>Pickup:</strong> ${pickup}</p>
             <p><strong>Drop-off:</strong> ${destination}</p>
             <p><strong>Vehicle:</strong> ${vehicle}</p>
@@ -126,18 +169,20 @@ app.post(
             <p><strong>Date:</strong> ${bookingDate}</p>
             <p><strong>Time:</strong> ${bookingTime}</p>
             <p><strong>Distance:</strong> ${distanceKm} km</p>
-            <p><strong>Flight Number:</strong> ${flightNumber}</p>
-            <p><strong>Special Requests:</strong> ${specialRequests}</p>
             <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
-
-            <br />
-            <p>Payment ID: ${paymentIntent.id}</p>
+            <p><strong>Payment ID:</strong> ${paymentIntent.id}</p>
           `,
+          attachments: [
+            {
+              filename: "Future-Limo-Invoice.pdf",
+              content: invoicePDF,
+            },
+          ],
         });
 
-        console.log("📧 Booking emails sent");
+        console.log("📧 Booking emails with PDF invoice sent");
       } catch (emailError) {
-        console.error("❌ Email sending failed:", emailError);
+        console.error("❌ Email/PDF sending failed:", emailError);
       }
     }
 
@@ -145,15 +190,7 @@ app.post(
   }
 );
 
-// ==========================================
-// JSON ROUTES
-// ==========================================
-
 app.use(express.json());
-
-// ==========================================
-// CREATE PAYMENT INTENT
-// ==========================================
 
 app.post("/create-payment-intent", async (req, res) => {
   try {
@@ -175,9 +212,7 @@ app.post("/create-payment-intent", async (req, res) => {
 
     if (!amount || amount <= 0) {
       return res.status(400).send({
-        error: {
-          message: "Invalid payment amount.",
-        },
+        error: { message: "Invalid payment amount." },
       });
     }
 
@@ -185,11 +220,7 @@ app.post("/create-payment-intent", async (req, res) => {
       amount: Math.round(Number(amount) * 100),
       currency: "cad",
       receipt_email: customerEmail || undefined,
-
-      automatic_payment_methods: {
-        enabled: true,
-      },
-
+      automatic_payment_methods: { enabled: true },
       metadata: {
         customerName: customerName || "",
         customerEmail: customerEmail || "",
@@ -211,18 +242,11 @@ app.post("/create-payment-intent", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Payment intent error:", error);
-
     res.status(400).send({
-      error: {
-        message: error.message,
-      },
+      error: { message: error.message },
     });
   }
 });
-
-// ==========================================
-// START SERVER
-// ==========================================
 
 const PORT = process.env.PORT || 3001;
 
