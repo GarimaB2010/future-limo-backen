@@ -10,10 +10,10 @@ const twilio = require("twilio");
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const smsClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+const smsClient =
+  process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    : null;
 
 const app = express();
 
@@ -32,6 +32,18 @@ app.use(
 app.get("/", (req, res) => {
   res.send("✅ Future Limo backend running");
 });
+
+function formatPhoneForTwilio(phone) {
+  if (!phone) return "";
+
+  const digits = phone.replace(/\D/g, "");
+
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (phone.startsWith("+")) return phone;
+
+  return "";
+}
 
 function createInvoicePDF(data) {
   return new Promise((resolve, reject) => {
@@ -154,11 +166,9 @@ app.post(
             subject: "Your Future Limo Booking Confirmation",
             html: `
               <h2>Hi ${customerName},</h2>
-
               <p>Thank you for booking with Future Limo. Your payment has been received and your ride is now confirmed.</p>
 
               <h3>Your Booking Confirmation</h3>
-
               <p><strong>Pickup:</strong> ${pickup}</p>
               <p><strong>Drop-off:</strong> ${destination}</p>
               <p><strong>Vehicle:</strong> ${vehicle}</p>
@@ -167,13 +177,10 @@ app.post(
               <p><strong>Time:</strong> ${bookingTime}</p>
               <p><strong>Total Paid:</strong> $${totalPaid} CAD</p>
 
-              <p>Your official PDF invoice is attached to this email for your records.</p>
+              <p>Your official PDF invoice is attached to this email.</p>
+              <p>Questions? Contact reservations@future-limo.com.</p>
 
-              <p>If you need to update your booking, please reply to this email or contact us at reservations@future-limo.com.</p>
-
-              <br />
-              <p>Thank you,</p>
-              <p><strong>Future Limo</strong></p>
+              <p>Thank you,<br/><strong>Future Limo</strong></p>
             `,
             attachments: invoiceAttachment,
           });
@@ -207,33 +214,32 @@ app.post(
 
         console.log("📧 Company email with PDF invoice sent");
 
-        if (customerPhone) {
+        const formattedPhone = formatPhoneForTwilio(customerPhone);
+
+        if (smsClient && formattedPhone && process.env.TWILIO_PHONE_NUMBER) {
           try {
             await smsClient.messages.create({
               from: process.env.TWILIO_PHONE_NUMBER,
-              to: customerPhone,
-              body: `Hi ${customerName},
-
-Your Future Limo booking is confirmed.
+              to: formattedPhone,
+              body: `Hi ${customerName}, your Future Limo booking is confirmed.
 
 Pickup: ${pickup}
 Drop-off: ${destination}
 Date: ${bookingDate}
 Time: ${bookingTime}
-
 Total Paid: $${totalPaid} CAD
 
 A confirmation email with your PDF invoice has been sent.
-
-Questions: reservations@future-limo.com
 
 Future Limo`,
             });
 
             console.log("📱 SMS confirmation sent");
           } catch (smsError) {
-            console.error("❌ SMS failed:", smsError);
+            console.error("❌ SMS failed:", smsError.message);
           }
+        } else {
+          console.log("⚠️ SMS skipped: missing phone number or Twilio settings");
         }
 
         console.log("✅ Booking confirmation flow completed");
@@ -300,6 +306,92 @@ app.post("/create-payment-intent", async (req, res) => {
     console.error("❌ Payment intent error:", error);
     res.status(400).send({
       error: { message: error.message },
+    });
+  }
+});
+
+app.post("/send-quote-request", async (req, res) => {
+  try {
+    const {
+      customerName,
+      customerEmail,
+      customerPhone,
+      pickup,
+      destination,
+      vehicle,
+      rideType,
+      bookingDate,
+      bookingTime,
+      flightNumber,
+      specialRequests,
+      distanceKm,
+      estimatedQuote,
+    } = req.body;
+
+    await resend.emails.send({
+      from: "Future Limo <reservations@future-limo.com>",
+      to: "reservations@future-limo.com",
+      subject: "New Quote Request - Future Limo",
+      html: `
+        <h1>New Quote Request</h1>
+
+        <p><strong>Name:</strong> ${customerName}</p>
+        <p><strong>Email:</strong> ${customerEmail}</p>
+        <p><strong>Phone:</strong> ${customerPhone}</p>
+
+        <p><strong>Pickup:</strong> ${pickup}</p>
+        <p><strong>Drop-off:</strong> ${destination}</p>
+        <p><strong>Vehicle:</strong> ${vehicle}</p>
+        <p><strong>Ride Type:</strong> ${rideType}</p>
+
+        <p><strong>Date:</strong> ${bookingDate}</p>
+        <p><strong>Time:</strong> ${bookingTime}</p>
+
+        <p><strong>Distance:</strong> ${distanceKm} km</p>
+        <p><strong>Flight:</strong> ${flightNumber || "None"}</p>
+
+        <p><strong>Special Requests:</strong></p>
+        <p>${specialRequests || "None"}</p>
+
+        <h2>Estimated Quote: $${estimatedQuote} CAD</h2>
+      `,
+    });
+
+    if (customerEmail) {
+      await resend.emails.send({
+        from: "Future Limo <reservations@future-limo.com>",
+        to: customerEmail,
+        subject: "We Received Your Future Limo Quote Request",
+        html: `
+          <h2>Hi ${customerName},</h2>
+
+          <p>Thank you for requesting a quote from Future Limo.</p>
+          <p>We received your request and our team will review it shortly.</p>
+
+          <h3>Your Request</h3>
+          <p><strong>Pickup:</strong> ${pickup}</p>
+          <p><strong>Drop-off:</strong> ${destination}</p>
+          <p><strong>Vehicle:</strong> ${vehicle}</p>
+          <p><strong>Date:</strong> ${bookingDate}</p>
+          <p><strong>Time:</strong> ${bookingTime}</p>
+          <p><strong>Estimated Quote:</strong> $${estimatedQuote} CAD</p>
+
+          <p>Questions? Contact reservations@future-limo.com.</p>
+
+          <p><strong>Future Limo</strong></p>
+        `,
+      });
+    }
+
+    console.log("📧 Quote request emails sent");
+
+    res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("❌ Quote email failed:", error);
+    res.status(500).json({
+      error: "Quote email failed",
     });
   }
 });
